@@ -6,13 +6,17 @@ import (
 	"github.com/emilykmarx/conftamer/contexttrack"
 )
 
-/* Dynamically track context during tests.
-Expects headless dlv to already be running on test. */
+/* Dynamically track context during tests. */
 
 func main() {
 	var dlv_port int
-	flag.IntVar(&dlv_port, "dlv-port", 4040, "Port dlv is listening on")
+	var test_pkg, test_name string
+	flag.IntVar(&dlv_port, "dlv-port", 4040, "Listening port for dlv")
+	flag.StringVar(&test_pkg, "test-pkg", "", "Package of test to run")
+	flag.StringVar(&test_name, "test-name", "", "Name of test to run")
 	flag.Parse()
 
-	contexttrack.RunClient(dlv_port)
+	if err := contexttrack.Run(dlv_port, test_pkg, test_name); err != nil {
+		panic(err)
+	}
 }

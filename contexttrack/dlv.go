@@ -1,15 +1,94 @@
 package contexttrack
 
 import (
+	"context"
 	"fmt"
-	"log"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
 
 	"github.com/go-delve/delve/service/rpc2"
 )
 
-// Connect to dlv and run the test
-func RunClient(dlv_port int) {
+func waitForServer(stdout *saveOutput, stderr *saveOutput) error {
+	// Wait for server to start or error
+	for ; len(stdout.savedOutput) == 0 && len(stderr.savedOutput) == 0; time.Sleep(300 * time.Millisecond) {
+	}
+	if len(stderr.savedOutput) > 0 {
+		return fmt.Errorf("Delve server errored while starting up - stderr above")
+	}
+	if !strings.HasPrefix(string(stdout.savedOutput), "API server listening at:") {
+		// happens if endpoint already bound
+		return fmt.Errorf("Delve server failed to start listening - stdout above")
+	}
+
+	return nil
+}
+
+// Allows writing child process' output to stdout and also parsing it
+type saveOutput struct {
+	savedOutput []byte
+}
+
+func (so *saveOutput) Write(p []byte) (n int, err error) {
+	so.savedOutput = append(so.savedOutput, p...)
+	return os.Stdout.Write(p)
+}
+
+// Launch the given test under dlv.
+// Run a client that connects to the dlv instance.
+func Run(dlv_port int, test_pkg string, test_name string) error {
 	dlv_endpoint := fmt.Sprintf("localhost:%v", dlv_port)
+
+	// Start dlv server
+	dlv_server, cancel, server_stdout, server_stderr := DlvServerCmd(dlv_endpoint, test_pkg, test_name)
+	defer cancel()
+
+	err := dlv_server.Start()
+	if err != nil {
+		return fmt.Errorf("Dlv server failed to launch: %v\n", err.Error())
+	}
+	err = waitForServer(server_stdout, server_stderr)
+	if err != nil {
+		return err
+	}
+
+	// Run dlv client until test finishes
+	if err := RunClient(dlv_endpoint); err != nil {
+		return err
+	}
+
+	// Check server stderr for problems during test
+	if len(server_stderr.savedOutput) > 0 {
+		server_lines := strings.Split(strings.Trim(string(server_stderr.savedOutput), "\n"), "\n")
+		if len(server_lines) == 1 && strings.Contains(server_lines[0], "Listening for remote connections") {
+			// normal
+		} else {
+			return fmt.Errorf("Delve server errored while client running: %s", server_stderr.savedOutput)
+		}
+	}
+	return nil
+}
+
+func DlvServerCmd(dlv_endpoint string, test_pkg string, test_name string) (*exec.Cmd, context.CancelFunc, *saveOutput, *saveOutput) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	server := exec.CommandContext(ctx, "dlv", "test", "--headless",
+		"--api-version=2", "--accept-multiclient", "--listen", dlv_endpoint,
+		test_pkg, "--", "-test.v", "-test.run", test_name)
+
+	fmt.Printf("Starting server: %v\n", strings.Join(server.Args, " "))
+
+	var server_out, server_err saveOutput
+	server.Stdout = &server_out
+	server.Stderr = &server_err
+
+	return server, cancel, &server_out, &server_err
+}
+
+// Connect to dlv and run the test
+func RunClient(dlv_endpoint string) error {
 	fmt.Printf("Connecting to dlv on %v\n", dlv_endpoint)
 
 	client := rpc2.NewClient(dlv_endpoint)
@@ -17,11 +96,11 @@ func RunClient(dlv_port int) {
 
 	for ; !state.Exited; state = <-client.Continue() {
 		if state.Err != nil {
-			log.Fatalf("Error in debugger state: %v\n", state.Err)
+			return fmt.Errorf("Error in debugger state: %v\n", state.Err)
 		}
 	}
 
 	fmt.Printf("Target exited with status %v\n", state.ExitStatus)
 
-	client.Detach(false) // Also kills server, despite function doc
+	return nil
 }
