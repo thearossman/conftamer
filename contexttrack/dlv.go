@@ -11,14 +11,39 @@ import (
 	"github.com/go-delve/delve/service/rpc2"
 )
 
+type ErrNoTests struct {
+}
+
+func (err *ErrNoTests) Error() string {
+	return "no test files"
+}
+
 func waitForServer(stdout *saveOutput, stderr *saveOutput) error {
 	// Wait for server to start or error
 	for ; len(stdout.savedOutput) == 0 && len(stderr.savedOutput) == 0; time.Sleep(300 * time.Millisecond) {
 	}
 	if len(stderr.savedOutput) > 0 {
-		return fmt.Errorf("Delve server errored while starting up - stderr above")
+		fmt.Printf("DLV STDERR: %v\n", string(stderr.savedOutput))
+		fmt.Printf("DLV STDOUT: %v\n", string(stdout.savedOutput))
+
+		if strings.Contains(string(stderr.savedOutput), "could not launch process: not an executable file") {
+			return &ErrNoTests{}
+		}
+		if !strings.Contains(string(stderr.savedOutput), "CGO_CFLAGS already set, Cgo code could be optimized.") {
+			return fmt.Errorf("Delve server errored while starting up - stderr above")
+		}
+	}
+	// Wait for server to start if stderr was a false alarm
+	for ; len(stdout.savedOutput) == 0; time.Sleep(300 * time.Millisecond) {
 	}
 	if !strings.HasPrefix(string(stdout.savedOutput), "API server listening at:") {
+		fmt.Printf("DLV STDERR: %v\n", string(stderr.savedOutput))
+		fmt.Printf("DLV STDOUT: %v\n", string(stdout.savedOutput))
+
+		if strings.Contains(string(stdout.savedOutput), "[no test files]") {
+			// Sometimes the stderr message for this shows up first and sometimes the stdout one
+			return &ErrNoTests{}
+		}
 		// happens if endpoint already bound
 		return fmt.Errorf("Delve server failed to start listening - stdout above")
 	}
@@ -38,7 +63,7 @@ func (so *saveOutput) Write(p []byte) (n int, err error) {
 
 // Launch the given test under dlv.
 // Run a client that connects to the dlv instance.
-func Run(dlv_port int, test_pkg string, test_name string) error {
+func Run(dlv_port int, test_pkg string, test_name string, client_data any, client_func func(string, any) error) error {
 	dlv_endpoint := fmt.Sprintf("localhost:%v", dlv_port)
 
 	// Start dlv server
@@ -55,7 +80,7 @@ func Run(dlv_port int, test_pkg string, test_name string) error {
 	}
 
 	// Run dlv client until test finishes
-	if err := RunClient(dlv_endpoint); err != nil {
+	if err := client_func(dlv_endpoint, client_data); err != nil {
 		return err
 	}
 

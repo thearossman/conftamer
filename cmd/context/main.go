@@ -16,7 +16,7 @@ func main() {
 	flag.StringVar(&test_name, "test-name", "", "Name of test to run")
 	flag.Parse()
 
-	if err := contexttrack.Run(dlv_port, test_pkg, test_name); err != nil {
+	if err := contexttrack.Run(dlv_port, test_pkg, test_name, 5, func(string, any) error { return nil }); err != nil {
 		panic(err)
 	}
 }
