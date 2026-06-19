@@ -10,12 +10,19 @@ Constants
 # before any registered handlers. When this is invoked,
 # initial request context is already set.
 # Takes *http.Request as an argument named `req`.
-HTTP_RECEIVE_FUNC = "net/http.serverHandler.ServeHTTP"
+HTTP_RECEIVE_FUNC = "net/http.(*ServeMux).ServeHTTP"
+# HTTP_RECEIVE_FUNC_2 = "net/http.(*ServeMux).ServeHTTP"
 
-# Inbound request received (HTTP/2). The HTTP/2 server never calls
-# serverHandler; it spawns a goroutine via runHandler instead.
+# Inbound request received (HTTP/2, Go >= 1.27 bundled h2_bundle.go).
+# Only active when golang.org/x/net/http2 is NOT overriding TLSNextProto.
 # Parameters: rw *http2responseWriter, req *Request, handler func(ResponseWriter, *Request)
-HTTP_RECEIVE_FUNC_H2 = "net/http.(*http2serverConn).runHandler"
+HTTP_RECEIVE_FUNC_H2_BUNDLED = "net/http.(*http2serverConn).runHandler"
+
+# Inbound request received (HTTP/2, Go <= 1.26 external golang.org/x/net/http2).
+# Caddy calls golang.org/x/net/http2.ConfigureServer, which installs this
+# package's handler into TLSNextProto["h2"], overriding the bundled one.
+# Parameters: rw *responseWriter, req *http.Request, handler func(...)
+HTTP_RECEIVE_FUNC_H2 = "golang.org/x/net/http2.(*serverConn).runHandler"
 
 # Outbound request sent. Performs the actual TCP write.
 # takes *http.Request as an argument.
@@ -27,11 +34,13 @@ HTTP_SEND_FUNC = "net/http.(*Transport).roundTrip"
 # contains code and original request.
 HTTP_RESPONSE_FUNC = "net/http.(*response).WriteHeader"
 
-# Outbound response sent (HTTP/2). HTTP/2 uses a different response
-# writer type; the receiver is `w *http2responseWriter` and the status
-# code is the explicit `code int` parameter.
-# Request fields are under w.rws.req rather than w.req.
-HTTP_RESPONSE_FUNC_H2 = "net/http.(*http2responseWriter).WriteHeader"
+# Outbound response sent (HTTP/2, Go >= 1.27 bundled h2_bundle.go).
+# Receiver: w *http2responseWriter; code int; request at w.rws.req.
+HTTP_RESPONSE_FUNC_H2_BUNDLED = "net/http.(*http2responseWriter).WriteHeader"
+
+# Outbound response sent (HTTP/2, Go <= 1.26 external golang.org/x/net/http2).
+# Receiver: w *responseWriter; code int; request at w.rws.req.
+HTTP_RESPONSE_FUNC_H2 = "golang.org/x/net/http2.(*responseWriter).WriteHeader"
 
 # Inbound response received.
 # Hooks net/http.redirectBehavior, which is called inside (*Client).do for

@@ -43,8 +43,9 @@ def _ident(event: dict) -> tuple:
         code = ""
 
     elif kind == "Response sent":
-        verb = msg.get("w.req.Method", "?")
-        path = msg.get("w.req.URL.Path", "/")
+        # HTTP/1.x stores at w.req.*; HTTP/2 stores at w.rws.req.*
+        verb = msg.get("w.req.Method") or msg.get("w.rws.req.Method", "?")
+        path = msg.get("w.req.URL.Path") or msg.get("w.rws.req.URL.Path", "/")
         code = msg.get("code", "?")
 
     elif kind == "Response received":

@@ -42,13 +42,20 @@ class HttpBreakpointIDs:
 
 
 def set_http_breakpoints(client: DelveClient) -> HttpBreakpointIDs:
+    # For HTTP/2, try both the external golang.org/x/net/http2 package
+    # (active on Go <= 1.26 when Caddy calls http2.ConfigureServer) and the
+    # bundled h2_bundle.go version (active on Go >= 1.27).  set_breakpoints_for
+    # prints a WARNING and returns an empty set if a function is not found, so
+    # whichever copy is absent in this binary is silently skipped.
     return HttpBreakpointIDs(
-        req_receive_bp_ids    = set_breakpoints_for(client, HTTP_RECEIVE_FUNC,      "req-received"),
-        req_receive_h2_bp_ids = set_breakpoints_for(client, HTTP_RECEIVE_FUNC_H2,   "req-received-h2"),
-        req_send_bp_ids       = set_breakpoints_for(client, HTTP_SEND_FUNC,         "req-sent"),
-        resp_send_bp_ids      = set_breakpoints_for(client, HTTP_RESPONSE_FUNC,     "resp-sent"),
-        resp_send_h2_bp_ids   = set_breakpoints_for(client, HTTP_RESPONSE_FUNC_H2,  "resp-sent-h2"),
-        resp_recv_bp_ids      = set_breakpoints_for(client, HTTP_RECV_RESPONSE_FUNC, "resp-received"),
+        req_receive_bp_ids    = set_breakpoints_for(client, HTTP_RECEIVE_FUNC,             "req-received"),
+        req_receive_h2_bp_ids = (set_breakpoints_for(client, HTTP_RECEIVE_FUNC_H2,         "req-received-h2")
+                               | set_breakpoints_for(client, HTTP_RECEIVE_FUNC_H2_BUNDLED, "req-received-h2-bundled")),
+        req_send_bp_ids       = set_breakpoints_for(client, HTTP_SEND_FUNC,                "req-sent"),
+        resp_send_bp_ids      = set_breakpoints_for(client, HTTP_RESPONSE_FUNC,            "resp-sent"),
+        resp_send_h2_bp_ids   = (set_breakpoints_for(client, HTTP_RESPONSE_FUNC_H2,        "resp-sent-h2")
+                               | set_breakpoints_for(client, HTTP_RESPONSE_FUNC_H2_BUNDLED,"resp-sent-h2-bundled")),
+        resp_recv_bp_ids      = set_breakpoints_for(client, HTTP_RECV_RESPONSE_FUNC,       "resp-received"),
     )
 
 
@@ -64,8 +71,10 @@ _CTX_CONTAINERS = [
     ({"*net/http.Request",               "net/http.Request"},               lambda n: f"{n}.ctx"),
     ({"*net/http.response",              "net/http.response"},              lambda n: f"{n}.req.ctx"),
     ({"*net/http.requestAndChan",        "net/http.requestAndChan"},        lambda n: f"{n}.treq.Request.ctx"),
-    # HTTP/2 response writer: context lives at w.rws.req.ctx
-    ({"*net/http.http2responseWriter",   "net/http.http2responseWriter"},   lambda n: f"{n}.rws.req.ctx"),
+    # HTTP/2 response writer (bundled h2_bundle.go, Go >= 1.27)
+    ({"*net/http.http2responseWriter",                  "net/http.http2responseWriter"},                  lambda n: f"{n}.rws.req.ctx"),
+    # HTTP/2 response writer (external x/net/http2, Go <= 1.26)
+    ({"*golang.org/x/net/http2.responseWriter",         "golang.org/x/net/http2.responseWriter"},         lambda n: f"{n}.rws.req.ctx"),
 ]
 
 
@@ -233,8 +242,17 @@ def main() -> None:
         print(f"║  {thread.get('file', '?')}:{thread.get('line', '?')}")
         print("╚══════════════════════════════════════════════════════════════╝")
 
-        msg_data = handler(client, goroutine_id) if handler else None
-        ctx_data = find_context(client, goroutine_id)
+        try:
+            msg_data = handler(client, goroutine_id) if handler else None
+        except Exception as e:
+            print(f"WARNING: message handler raised: {e}", file=sys.stderr)
+            msg_data = {"error": str(e)}
+
+        try:
+            ctx_data = find_context(client, goroutine_id)
+        except Exception as e:
+            print(f"WARNING: find_context raised: {e}", file=sys.stderr)
+            ctx_data = {"error": str(e)}
 
         if out_file:
             event = {

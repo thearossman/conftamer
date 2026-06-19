@@ -89,8 +89,12 @@ def set_breakpoints_for(client: DelveClient, func_name: str, name: str) -> set:
     for loc in locs:
         addr = loc.get("pc", 0)
         bp = client.create_breakpoint(addr).get("Breakpoint") or {}
-        ids.add(bp.get("id"))
-        print(f"  [{name}] Breakpoint {bp.get('id')} at "
+        bp_id = bp.get("id")
+        if bp_id is None:
+            print(f"  WARNING: [{name}] breakpoint created but Delve returned no id for 0x{addr:x}")
+        else:
+            ids.add(bp_id)
+        print(f"  [{name}] Breakpoint {bp_id} at "
               f"{bp.get('file')}:{bp.get('line')} (0x{addr:x}) for {func_name!r}")
     return ids
 
