@@ -32,5 +32,5 @@ dlv test --headless --listen=:2345 --api-version=2 ./modules/caddyhttp/reversepr
 Integration tests:
 
 ```
-dlv test --headless --listen=:2345 --api-version=2 ./caddytest/integration/ -- -test.run TestRespondWithJSON -test.v
+dlv test --headless --listen=:2345 --api-version=2     --build-flags="-gcflags=net/http=-l"     ./caddytest/integration/     -- -test.v -test.timeout 0
 ```
