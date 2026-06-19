@@ -33,13 +33,13 @@ def _ident(event: dict) -> tuple:
     label = _KIND_LABEL.get(kind, f"{kind:<14}")
 
     if kind == "Request sent":
-        verb = msg.get("req.Method", "?")
-        path = msg.get("req.URL.Path", "/")
+        verb = msg.get("req.Method") or msg.get("r.Method", "?")
+        path = msg.get("req.URL.Path") or msg.get("r.URL.Path", "/")
         code = ""
 
     elif kind == "Request received":
-        verb = msg.get("req.Method", "?")
-        path = msg.get("req.URL.Path", "/")
+        verb = msg.get("req.Method") or msg.get("r.Method", "?")
+        path = msg.get("req.URL.Path") or msg.get("r.URL.Path", "/")
         code = ""
 
     elif kind == "Response sent":

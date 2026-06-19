@@ -13,13 +13,29 @@ def _eval_flat(client: DelveClient, goroutine_id: int, frame: int, expr: str) ->
         return f"<error: {e}>"
 
 
+def _eval_with_fallbacks(client, goroutine_id, expr) -> tuple[str, str]:
+    """Try expr as-is; if it fails and starts with a known request variable name,
+    retry with alternate names (r <-> req). Returns (resolved_expr, value)."""
+    val = _eval_flat(client, goroutine_id, 0, expr)
+    if not val.startswith("<error:"):
+        return expr, val
+    prefix, _, rest = expr.partition(".")
+    alternates = {"r": ["req"], "req": ["r"]}.get(prefix, [])
+    for alt in alternates:
+        alt_expr = f"{alt}.{rest}"
+        alt_val = _eval_flat(client, goroutine_id, 0, alt_expr)
+        if not alt_val.startswith("<error:"):
+            return alt_expr, alt_val
+    return expr, val
+
+
 def _print_and_collect(client, goroutine_id, header, exprs) -> dict:
     print(f"\n┌─ {header}")
     data = {}
     for expr in exprs:
-        val = _eval_flat(client, goroutine_id, 0, expr)
-        data[expr] = val
-        print(f"│  {expr:<26} = {val}")
+        resolved_expr, val = _eval_with_fallbacks(client, goroutine_id, expr)
+        data[resolved_expr] = val
+        print(f"│  {resolved_expr:<26} = {val}")
     print("└──────────────────────────────────────────────────────────────")
     return data
 
@@ -27,7 +43,7 @@ def _print_and_collect(client, goroutine_id, header, exprs) -> dict:
 def get_http_request_recvd(client: DelveClient, goroutine_id: int) -> dict:
     return _print_and_collect(client, goroutine_id,
         "HTTP Request (received by server) ─────────────────────────",
-        ["req.Method", "req.URL.Path", "req.URL.RawQuery", "req.Header", "req.RemoteAddr", "req.Proto"])
+        ["r.Method", "r.URL.Path", "r.URL.RawQuery", "r.Header", "r.RemoteAddr", "r.Proto"])
 
 
 def get_http_request_sent(client: DelveClient, goroutine_id: int) -> dict:
