@@ -6,21 +6,32 @@ Constants
 # Breakpoints
 # --------------------------------------------
 
-# Inbound request received. Fires once per request
+# Inbound request received (HTTP/1.x). Fires once per request
 # before any registered handlers. When this is invoked,
-# initital request context is already set.
-# Takes *http.Request as an argument.
+# initial request context is already set.
+# Takes *http.Request as an argument named `req`.
 HTTP_RECEIVE_FUNC = "net/http.serverHandler.ServeHTTP"
+
+# Inbound request received (HTTP/2). The HTTP/2 server never calls
+# serverHandler; it spawns a goroutine via runHandler instead.
+# Parameters: rw *http2responseWriter, req *Request, handler func(ResponseWriter, *Request)
+HTTP_RECEIVE_FUNC_H2 = "net/http.(*http2serverConn).runHandler"
 
 # Outbound request sent. Performs the actual TCP write.
 # takes *http.Request as an argument.
 HTTP_SEND_FUNC = "net/http.(*Transport).roundTrip"
 
-# Outbound response sent. Server writes HTTP header by
+# Outbound response sent (HTTP/1.x). Server writes HTTP header by
 # committing to a status code.
 # Takes `w *net/http.response` (unexported type), which
 # contains code and original request.
 HTTP_RESPONSE_FUNC = "net/http.(*response).WriteHeader"
+
+# Outbound response sent (HTTP/2). HTTP/2 uses a different response
+# writer type; the receiver is `w *http2responseWriter` and the status
+# code is the explicit `code int` parameter.
+# Request fields are under w.rws.req rather than w.req.
+HTTP_RESPONSE_FUNC_H2 = "net/http.(*http2responseWriter).WriteHeader"
 
 # Inbound response received.
 # Hooks net/http.redirectBehavior, which is called inside (*Client).do for

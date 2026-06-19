@@ -8,10 +8,10 @@ This logic is specific to HTTP because of:
 
 Usage:
 
-Terminal 1: start target under delve
-    dlv debug --headless --listen=:2345 --api-version=2 .
+Terminal 1: start target under delve (disable inlining for net/http)
+    dlv debug --headless --listen=:2345 --api-version=2  --build-flags="-gcflags=net/http=-l" .
     or:
-        dlv test --headless --listen=:2345 --api-version=2 [directory] [options]
+        dlv test --headless --listen=:2345 --api-version=2  --build-flags="-gcflags=net/http=-l" [directory] [options]
 
 Terminal 2: run this script
     python3 delve_client/delve_client.py [--output events.jsonl]
@@ -33,18 +33,22 @@ from delve_client_fmt import *
 
 @dataclass
 class HttpBreakpointIDs:
-    req_receive_bp_ids: set
-    req_send_bp_ids:    set
-    resp_send_bp_ids:   set
-    resp_recv_bp_ids:   set
+    req_receive_bp_ids:    set
+    req_receive_h2_bp_ids: set
+    req_send_bp_ids:       set
+    resp_send_bp_ids:      set
+    resp_send_h2_bp_ids:   set
+    resp_recv_bp_ids:      set
 
 
 def set_http_breakpoints(client: DelveClient) -> HttpBreakpointIDs:
     return HttpBreakpointIDs(
-        req_receive_bp_ids = set_breakpoints_for(client, HTTP_RECEIVE_FUNC,      "req-received"),
-        req_send_bp_ids    = set_breakpoints_for(client, HTTP_SEND_FUNC,         "req-sent"),
-        resp_send_bp_ids   = set_breakpoints_for(client, HTTP_RESPONSE_FUNC,     "resp-sent"),
-        resp_recv_bp_ids   = set_breakpoints_for(client, HTTP_RECV_RESPONSE_FUNC, "resp-received"),
+        req_receive_bp_ids    = set_breakpoints_for(client, HTTP_RECEIVE_FUNC,      "req-received"),
+        req_receive_h2_bp_ids = set_breakpoints_for(client, HTTP_RECEIVE_FUNC_H2,   "req-received-h2"),
+        req_send_bp_ids       = set_breakpoints_for(client, HTTP_SEND_FUNC,         "req-sent"),
+        resp_send_bp_ids      = set_breakpoints_for(client, HTTP_RESPONSE_FUNC,     "resp-sent"),
+        resp_send_h2_bp_ids   = set_breakpoints_for(client, HTTP_RESPONSE_FUNC_H2,  "resp-sent-h2"),
+        resp_recv_bp_ids      = set_breakpoints_for(client, HTTP_RECV_RESPONSE_FUNC, "resp-received"),
     )
 
 
@@ -57,9 +61,11 @@ _PARENT_POINTERS = [
 
 # Container types whose embedded context can be reached via a known field path.
 _CTX_CONTAINERS = [
-    ({"*net/http.Request",        "net/http.Request"},       lambda n: f"{n}.ctx"),
-    ({"*net/http.response",       "net/http.response"},      lambda n: f"{n}.req.ctx"),
-    ({"*net/http.requestAndChan", "net/http.requestAndChan"}, lambda n: f"{n}.treq.Request.ctx"),
+    ({"*net/http.Request",               "net/http.Request"},               lambda n: f"{n}.ctx"),
+    ({"*net/http.response",              "net/http.response"},              lambda n: f"{n}.req.ctx"),
+    ({"*net/http.requestAndChan",        "net/http.requestAndChan"},        lambda n: f"{n}.treq.Request.ctx"),
+    # HTTP/2 response writer: context lives at w.rws.req.ctx
+    ({"*net/http.http2responseWriter",   "net/http.http2responseWriter"},   lambda n: f"{n}.rws.req.ctx"),
 ]
 
 
@@ -183,12 +189,16 @@ def main() -> None:
     http_bp_ids = set_http_breakpoints(client)
     print("Waiting for HTTP events… (Ctrl-C to stop)\n")
 
-    # Map each breakpoint set to its label and handler
+    # Map each breakpoint set to its label and handler.
+    # HTTP/2 variants use the same "Request received" / "Response sent" labels
+    # but different data-extraction functions because the internal types differ.
     bp_handlers = [
-        (http_bp_ids.req_receive_bp_ids, "Request received",  get_http_request_recvd),
-        (http_bp_ids.req_send_bp_ids,    "Request sent",      get_http_request_sent),
-        (http_bp_ids.resp_send_bp_ids,   "Response sent",     get_http_response_sent),
-        (http_bp_ids.resp_recv_bp_ids,   "Response received", get_http_response_recvd),
+        (http_bp_ids.req_receive_bp_ids,    "Request received",  get_http_request_recvd),
+        (http_bp_ids.req_receive_h2_bp_ids, "Request received",  get_http_request_recvd),   # req param identical
+        (http_bp_ids.req_send_bp_ids,       "Request sent",      get_http_request_sent),
+        (http_bp_ids.resp_send_bp_ids,      "Response sent",     get_http_response_sent),
+        (http_bp_ids.resp_send_h2_bp_ids,   "Response sent",     get_http_response_sent_h2),
+        (http_bp_ids.resp_recv_bp_ids,      "Response received", get_http_response_recvd),
     ]
 
     while True:

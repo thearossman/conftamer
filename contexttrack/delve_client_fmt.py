@@ -38,8 +38,16 @@ def get_http_request_sent(client: DelveClient, goroutine_id: int) -> dict:
 
 def get_http_response_sent(client: DelveClient, goroutine_id: int) -> dict:
     return _print_and_collect(client, goroutine_id,
-        "HTTP Response (message being sent) ────────────────────────",
+        "HTTP Response (message being sent, HTTP/1.x) ──────────────",
         ["code", "w.handlerHeader", "w.req.Method", "w.req.URL.Path", "w.req.URL.RawQuery"])
+
+
+def get_http_response_sent_h2(client: DelveClient, goroutine_id: int) -> dict:
+    # For HTTP/2, the receiver is *http2responseWriter and request fields
+    # live at w.rws.req rather than w.req.
+    return _print_and_collect(client, goroutine_id,
+        "HTTP Response (message being sent, HTTP/2) ────────────────",
+        ["code", "w.rws.handlerHeader", "w.rws.req.Method", "w.rws.req.URL.Path", "w.rws.req.URL.RawQuery"])
 
 
 def get_http_response_recvd(client: DelveClient, goroutine_id: int) -> dict:
