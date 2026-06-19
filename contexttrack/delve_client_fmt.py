@@ -83,5 +83,9 @@ def get_http_response_recvd(client: DelveClient, goroutine_id: int) -> dict:
         val = _eval_flat(client, goroutine_id, 0, f"{vname}.{field}")
         data[f"resp.{field}"] = val
         print(f"│  resp.{field:<21} = {val}")
+    for field in ["Method", "URL.Host", "URL.Path", "URL.RawQuery"]:
+        val = _eval_flat(client, goroutine_id, 0, f"ireq.{field}")
+        data[f"ireq.{field}"] = val
+        print(f"│  ireq.{field:<21} = {val}")
     print("└──────────────────────────────────────────────────────────────")
     return data

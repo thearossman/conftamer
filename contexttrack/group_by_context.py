@@ -49,8 +49,8 @@ def _ident(event: dict) -> tuple:
         code = msg.get("code", "?")
 
     elif kind == "Response received":
-        verb = ""
-        path = ""
+        verb = msg.get("ireq.Method", "")
+        path = msg.get("ireq.URL.Path", "")
         code = msg.get("resp.StatusCode", msg.get("resp.Status", "?"))
 
     else:
