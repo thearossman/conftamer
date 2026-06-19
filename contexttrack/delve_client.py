@@ -10,6 +10,8 @@ Usage:
 
 Terminal 1: start target under delve
     dlv debug --headless --listen=:2345 --api-version=2 .
+    or:
+        dlv test --headless --listen=:2345 --api-version=2 [directory] [options]
 
 Terminal 2: run this script
     python3 delve_client/delve_client.py [--output events.jsonl]
